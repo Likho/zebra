@@ -2,16 +2,13 @@
 //!
 //! Usage: <https://docs.rs/zcash_address/0.2.0/zcash_address/trait.TryFromAddress.html#examples>
 
-use zcash_address::unified::{self, Container};
+use zcash_address::unified::{self, Container, Receiver};
 use zcash_primitives::sapling;
 
 use crate::{parameters::NetworkKind, transparent, BoxError};
 
 /// Zcash address variants
 pub enum Address {
-    /// Transparent address
-    Transparent(transparent::Address),
-
     /// Sapling address
     Sapling {
         /// Address' network kind
@@ -34,35 +31,12 @@ pub enum Address {
 
         /// Sapling address
         sapling: Option<sapling::PaymentAddress>,
-
-        /// Transparent address
-        transparent: Option<transparent::Address>,
     },
 }
 
 impl zcash_address::TryFromAddress for Address {
     // TODO: crate::serialization::SerializationError
     type Error = BoxError;
-
-    fn try_from_transparent_p2pkh(
-        network: zcash_address::Network,
-        data: [u8; 20],
-    ) -> Result<Self, zcash_address::ConversionError<Self::Error>> {
-        Ok(Self::Transparent(transparent::Address::from_pub_key_hash(
-            NetworkKind::from_zcash_address(network),
-            data,
-        )))
-    }
-
-    fn try_from_transparent_p2sh(
-        network: zcash_address::Network,
-        data: [u8; 20],
-    ) -> Result<Self, zcash_address::ConversionError<Self::Error>> {
-        Ok(Self::Transparent(transparent::Address::from_script_hash(
-            NetworkKind::from_zcash_address(network),
-            data,
-        )))
-    }
 
     fn try_from_sapling(
         network: zcash_address::Network,
@@ -81,7 +55,6 @@ impl zcash_address::TryFromAddress for Address {
         let network = NetworkKind::from_zcash_address(network);
         let mut orchard = None;
         let mut sapling = None;
-        let mut transparent = None;
 
         for receiver in unified_address.items().into_iter() {
             match receiver {
@@ -109,15 +82,10 @@ impl zcash_address::TryFromAddress for Address {
                         .into());
                     }
                 }
-                unified::Receiver::P2pkh(data) => {
-                    transparent = Some(transparent::Address::from_pub_key_hash(network, data));
-                }
-                unified::Receiver::P2sh(data) => {
-                    transparent = Some(transparent::Address::from_script_hash(network, data));
-                }
                 unified::Receiver::Unknown { .. } => {
                     return Err(BoxError::from("Unsupported receiver in a Unified Address.").into());
                 }
+                _ => {}
             }
         }
 
@@ -126,7 +94,6 @@ impl zcash_address::TryFromAddress for Address {
             unified_address,
             orchard,
             sapling,
-            transparent,
         })
     }
 }
@@ -135,7 +102,6 @@ impl Address {
     /// Returns the network for the address.
     pub fn network(&self) -> NetworkKind {
         match &self {
-            Self::Transparent(address) => address.network_kind(),
             Self::Sapling { network, .. } | Self::Unified { network, .. } => *network,
         }
     }
@@ -144,15 +110,9 @@ impl Address {
     /// Returns false if the address is PayToPublicKeyHash or shielded.
     pub fn is_script_hash(&self) -> bool {
         match &self {
-            Self::Transparent(address) => address.is_script_hash(),
             Self::Sapling { .. } | Self::Unified { .. } => false,
+            _ => true
         }
-    }
-
-    /// Returns true if address is of the [`Address::Transparent`] variant.
-    /// Returns false if otherwise.
-    pub fn is_transparent(&self) -> bool {
-        matches!(self, Self::Transparent(_))
     }
 
     /// Returns the payment address for transparent or sapling addresses.
@@ -160,7 +120,6 @@ impl Address {
         use zcash_address::{ToAddress, ZcashAddress};
 
         match &self {
-            Self::Transparent(address) => Some(address.to_string()),
             Self::Sapling { address, network } => {
                 let data = address.to_bytes();
                 let address = ZcashAddress::from_sapling(network.to_zcash_address(), data);

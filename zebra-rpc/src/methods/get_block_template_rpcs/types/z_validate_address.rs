@@ -39,10 +39,6 @@ impl Response {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AddressType {
-    /// The `p2pkh` address type.
-    P2pkh,
-    /// The `p2sh` address type.
-    P2sh,
     /// The `sapling` address type.
     Sapling,
     /// The `unified` address type.
@@ -52,13 +48,6 @@ pub enum AddressType {
 impl From<&Address> for AddressType {
     fn from(address: &Address) -> Self {
         match address {
-            Address::Transparent(_) => {
-                if address.is_script_hash() {
-                    Self::P2sh
-                } else {
-                    Self::P2pkh
-                }
-            }
             Address::Sapling { .. } => Self::Sapling,
             Address::Unified { .. } => Self::Unified,
         }

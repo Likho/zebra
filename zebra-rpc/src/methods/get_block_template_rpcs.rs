@@ -1091,11 +1091,6 @@ where
                     }
                 };
 
-            // we want to match zcashd's behaviour
-            if !address.is_transparent() {
-                return Ok(validate_address::Response::invalid());
-            }
-
             if address.network() == network.kind() {
                 Ok(validate_address::Response {
                     address: Some(raw_address),
@@ -1308,8 +1303,6 @@ where
                 },
             )?;
 
-            let mut p2pkh = String::new();
-            let mut p2sh = String::new();
             let mut orchard = String::new();
             let mut sapling = String::new();
 
@@ -1326,26 +1319,12 @@ where
                                 .expect("using data already decoded as valid");
                         sapling = addr.payment_address().unwrap_or_default();
                     }
-                    zcash_address::unified::Receiver::P2pkh(data) => {
-                        let addr = zebra_chain::primitives::Address::try_from_transparent_p2pkh(
-                            network, data,
-                        )
-                        .expect("using data already decoded as valid");
-                        p2pkh = addr.payment_address().unwrap_or_default();
-                    }
-                    zcash_address::unified::Receiver::P2sh(data) => {
-                        let addr = zebra_chain::primitives::Address::try_from_transparent_p2sh(
-                            network, data,
-                        )
-                        .expect("using data already decoded as valid");
-                        p2sh = addr.payment_address().unwrap_or_default();
-                    }
                     _ => (),
                 }
             }
 
             Ok(unified_address::Response::new(
-                orchard, sapling, p2pkh, p2sh,
+                orchard, sapling,
             ))
         }
         .boxed()
