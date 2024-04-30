@@ -26,8 +26,6 @@ pub mod difficulty;
 mod tests;
 
 pub use address::{
-    balance::transparent_balance,
-    tx_id::transparent_tx_ids,
     utxo::{address_utxos, AddressUtxos},
 };
 pub use block::{

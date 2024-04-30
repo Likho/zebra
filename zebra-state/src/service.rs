@@ -1616,64 +1616,6 @@ impl Service<ReadRequest> for ReadStateService {
                 .wait_for_panics()
             }
 
-            // For the get_address_balance RPC.
-            ReadRequest::AddressBalance(addresses) => {
-                let state = self.clone();
-
-                tokio::task::spawn_blocking(move || {
-                    span.in_scope(move || {
-                        let balance = state.non_finalized_state_receiver.with_watch_data(
-                            |non_finalized_state| {
-                                read::transparent_balance(
-                                    non_finalized_state.best_chain().cloned(),
-                                    &state.db,
-                                    addresses,
-                                )
-                            },
-                        )?;
-
-                        // The work is done in the future.
-                        timer.finish(module_path!(), line!(), "ReadRequest::AddressBalance");
-
-                        Ok(ReadResponse::AddressBalance(balance))
-                    })
-                })
-                .wait_for_panics()
-            }
-
-            // For the get_address_tx_ids RPC.
-            ReadRequest::TransactionIdsByAddresses {
-                addresses,
-                height_range,
-            } => {
-                let state = self.clone();
-
-                tokio::task::spawn_blocking(move || {
-                    span.in_scope(move || {
-                        let tx_ids = state.non_finalized_state_receiver.with_watch_data(
-                            |non_finalized_state| {
-                                read::transparent_tx_ids(
-                                    non_finalized_state.best_chain(),
-                                    &state.db,
-                                    addresses,
-                                    height_range,
-                                )
-                            },
-                        );
-
-                        // The work is done in the future.
-                        timer.finish(
-                            module_path!(),
-                            line!(),
-                            "ReadRequest::TransactionIdsByAddresses",
-                        );
-
-                        tx_ids.map(ReadResponse::AddressesTransactionIds)
-                    })
-                })
-                .wait_for_panics()
-            }
-
             // For the get_address_utxos RPC.
             ReadRequest::UtxosByAddresses(addresses) => {
                 let state = self.clone();

@@ -935,31 +935,6 @@ pub enum ReadRequest {
         limit: Option<NoteCommitmentSubtreeIndex>,
     },
 
-    /// Looks up the balance of a set of transparent addresses.
-    ///
-    /// Returns an [`Amount`](zebra_chain::amount::Amount) with the total
-    /// balance of the set of addresses.
-    AddressBalance(HashSet<transparent::Address>),
-
-    /// Looks up transaction hashes that were sent or received from addresses,
-    /// in an inclusive blockchain height range.
-    ///
-    /// Returns
-    ///
-    /// * An ordered, unique map of transaction locations and hashes.
-    /// * An empty map if no transactions were found for the given arguments.
-    ///
-    /// Returned txids are in the order they appear in blocks,
-    /// which ensures that they are topologically sorted
-    /// (i.e. parent txids will appear before child txids).
-    TransactionIdsByAddresses {
-        /// The requested addresses.
-        addresses: HashSet<transparent::Address>,
-
-        /// The blocks to be queried for transactions.
-        height_range: RangeInclusive<block::Height>,
-    },
-
     /// Looks up utxos for the provided addresses.
     ///
     /// Returns a type with found utxos and transaction information.
@@ -1032,8 +1007,6 @@ impl ReadRequest {
             ReadRequest::OrchardTree { .. } => "orchard_tree",
             ReadRequest::SaplingSubtrees { .. } => "sapling_subtrees",
             ReadRequest::OrchardSubtrees { .. } => "orchard_subtrees",
-            ReadRequest::AddressBalance { .. } => "address_balance",
-            ReadRequest::TransactionIdsByAddresses { .. } => "transaction_ids_by_addesses",
             ReadRequest::UtxosByAddresses(_) => "utxos_by_addesses",
             ReadRequest::CheckBestChainTipNullifiersAndAnchors(_) => {
                 "best_chain_tip_nullifiers_anchors"

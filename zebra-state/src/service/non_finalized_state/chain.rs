@@ -33,7 +33,6 @@ use crate::{
     TransactionLocation, ValidateContextError,
 };
 
-use self::index::TransparentTransfers;
 
 pub mod index;
 
@@ -181,13 +180,6 @@ pub struct ChainInner {
     pub(crate) sapling_nullifiers: HashSet<sapling::Nullifier>,
     /// The Orchard nullifiers revealed by `blocks`.
     pub(crate) orchard_nullifiers: HashSet<orchard::Nullifier>,
-
-    // Transparent Transfers
-    // TODO: move to the transparent section
-    //
-    /// Partial transparent address index data from `blocks`.
-    pub(super) partial_transparent_transfers: HashMap<transparent::Address, TransparentTransfers>,
-
     // Chain Work
     //
     /// The cumulative work represented by `blocks`.
@@ -240,7 +232,6 @@ impl Chain {
             sprout_nullifiers: Default::default(),
             sapling_nullifiers: Default::default(),
             orchard_nullifiers: Default::default(),
-            partial_transparent_transfers: Default::default(),
             partial_cumulative_work: Default::default(),
             history_trees_by_height: Default::default(),
             chain_value_pools: finalized_tip_chain_value_pools,
@@ -1247,116 +1238,6 @@ impl Chain {
     }
 
     // Address index queries
-
-    /// Returns the transparent transfers for `addresses` in this non-finalized chain.
-    ///
-    /// If none of the addresses have an address index, returns an empty iterator.
-    ///
-    /// # Correctness
-    ///
-    /// Callers should apply the returned indexes to the corresponding finalized state indexes.
-    ///
-    /// The combined result will only be correct if the chains match.
-    /// The exact type of match varies by query.
-    pub fn partial_transparent_indexes<'a>(
-        &'a self,
-        addresses: &'a HashSet<transparent::Address>,
-    ) -> impl Iterator<Item = &TransparentTransfers> {
-        addresses
-            .iter()
-            .flat_map(|address| self.partial_transparent_transfers.get(address))
-    }
-
-    /// Returns the transparent balance change for `addresses` in this non-finalized chain.
-    ///
-    /// If the balance doesn't change for any of the addresses, returns zero.
-    ///
-    /// # Correctness
-    ///
-    /// Callers should apply this balance change to the finalized state balance for `addresses`.
-    ///
-    /// The total balance will only be correct if this partial chain matches the finalized state.
-    /// Specifically, the root of this partial chain must be a child block of the finalized tip.
-    pub fn partial_transparent_balance_change(
-        &self,
-        addresses: &HashSet<transparent::Address>,
-    ) -> Amount<NegativeAllowed> {
-        let balance_change: Result<Amount<NegativeAllowed>, _> = self
-            .partial_transparent_indexes(addresses)
-            .map(|transfers| transfers.balance())
-            .sum();
-
-        balance_change.expect(
-            "unexpected amount overflow: value balances are valid, so partial sum should be valid",
-        )
-    }
-
-    /// Returns the transparent UTXO changes for `addresses` in this non-finalized chain.
-    ///
-    /// If the UTXOs don't change for any of the addresses, returns empty lists.
-    ///
-    /// # Correctness
-    ///
-    /// Callers should apply these non-finalized UTXO changes to the finalized state UTXOs.
-    ///
-    /// The UTXOs will only be correct if the non-finalized chain matches or overlaps with
-    /// the finalized state.
-    ///
-    /// Specifically, a block in the partial chain must be a child block of the finalized tip.
-    /// (But the child block does not have to be the partial chain root.)
-    pub fn partial_transparent_utxo_changes(
-        &self,
-        addresses: &HashSet<transparent::Address>,
-    ) -> (
-        BTreeMap<OutputLocation, transparent::Output>,
-        BTreeSet<OutputLocation>,
-    ) {
-        let created_utxos = self
-            .partial_transparent_indexes(addresses)
-            .flat_map(|transfers| transfers.created_utxos())
-            .map(|(out_loc, output)| (*out_loc, output.clone()))
-            .collect();
-
-        let spent_utxos = self
-            .partial_transparent_indexes(addresses)
-            .flat_map(|transfers| transfers.spent_utxos())
-            .cloned()
-            .collect();
-
-        (created_utxos, spent_utxos)
-    }
-
-    /// Returns the [`transaction::Hash`]es used by `addresses` to receive or spend funds,
-    /// in the non-finalized chain, filtered using the `query_height_range`.
-    ///
-    /// If none of the addresses receive or spend funds in this partial chain, returns an empty list.
-    ///
-    /// # Correctness
-    ///
-    /// Callers should combine these non-finalized transactions with the finalized state transactions.
-    ///
-    /// The transaction IDs will only be correct if the non-finalized chain matches or overlaps with
-    /// the finalized state.
-    ///
-    /// Specifically, a block in the partial chain must be a child block of the finalized tip.
-    /// (But the child block does not have to be the partial chain root.)
-    ///
-    /// This condition does not apply if there is only one address.
-    /// Since address transactions are only appended by blocks,
-    /// and the finalized state query reads them in order,
-    /// it is impossible to get inconsistent transactions for a single address.
-    pub fn partial_transparent_tx_ids(
-        &self,
-        addresses: &HashSet<transparent::Address>,
-        query_height_range: RangeInclusive<Height>,
-    ) -> BTreeMap<TransactionLocation, transaction::Hash> {
-        self.partial_transparent_indexes(addresses)
-            .flat_map(|transfers| {
-                transfers.tx_ids(&self.tx_loc_by_hash, query_height_range.clone())
-            })
-            .collect()
-    }
-
     /// Update the chain tip with the `contextually_valid` block,
     /// running note commitment tree updates in parallel with other updates.
     ///
@@ -1525,11 +1406,6 @@ impl Chain {
                 "transactions must be unique within a single chain"
             );
 
-            // add the utxos this produced
-            self.update_chain_tip_with(&(outputs, &transaction_hash, new_outputs))?;
-            // delete the utxos this consumed
-            self.update_chain_tip_with(&(inputs, &transaction_hash, spent_outputs))?;
-
             // add the shielded data
             self.update_chain_tip_with(joinsplit_data)?;
             self.update_chain_tip_with(sapling_shielded_data_per_spend_anchor)?;
@@ -1676,11 +1552,6 @@ impl UpdateWith<ContextuallyVerifiedBlock> for Chain {
                 ),
             };
 
-            // remove the utxos this produced
-            self.revert_chain_with(&(outputs, transaction_hash, new_outputs), position);
-            // reset the utxos this consumed
-            self.revert_chain_with(&(inputs, transaction_hash, spent_outputs), position);
-
             // TODO: move this to the history tree UpdateWith.revert...()?
             // remove `transaction.hash` from `tx_loc_by_hash`
             assert!(
@@ -1705,219 +1576,6 @@ impl UpdateWith<ContextuallyVerifiedBlock> for Chain {
 
         // revert the chain value pool balances, if needed
         self.revert_chain_with(chain_value_pool_change, position);
-    }
-}
-
-// Created UTXOs
-//
-// TODO: replace arguments with a struct
-impl
-    UpdateWith<(
-        // The outputs from a transaction in this block
-        &Vec<transparent::Output>,
-        // The hash of the transaction that the outputs are from
-        &transaction::Hash,
-        // The UTXOs for all outputs created by this transaction (or block)
-        &HashMap<transparent::OutPoint, transparent::OrderedUtxo>,
-    )> for Chain
-{
-    #[allow(clippy::unwrap_in_result)]
-    fn update_chain_tip_with(
-        &mut self,
-        &(created_outputs, creating_tx_hash, block_created_outputs): &(
-            &Vec<transparent::Output>,
-            &transaction::Hash,
-            &HashMap<transparent::OutPoint, transparent::OrderedUtxo>,
-        ),
-    ) -> Result<(), ValidateContextError> {
-        for output_index in 0..created_outputs.len() {
-            let outpoint = transparent::OutPoint {
-                hash: *creating_tx_hash,
-                index: output_index.try_into().expect("valid indexes fit in u32"),
-            };
-            let created_utxo = block_created_outputs
-                .get(&outpoint)
-                .expect("new_outputs contains all created UTXOs");
-
-            // Update the chain's created UTXOs
-            let previous_entry = self.created_utxos.insert(outpoint, created_utxo.clone());
-            assert_eq!(
-                previous_entry, None,
-                "unexpected created output: duplicate update or duplicate UTXO",
-            );
-
-            // Update the address index with this UTXO
-            if let Some(receiving_address) = created_utxo.utxo.output.address(&self.network) {
-                let address_transfers = self
-                    .partial_transparent_transfers
-                    .entry(receiving_address)
-                    .or_default();
-
-                address_transfers.update_chain_tip_with(&(&outpoint, created_utxo))?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn revert_chain_with(
-        &mut self,
-        &(created_outputs, creating_tx_hash, block_created_outputs): &(
-            &Vec<transparent::Output>,
-            &transaction::Hash,
-            &HashMap<transparent::OutPoint, transparent::OrderedUtxo>,
-        ),
-        position: RevertPosition,
-    ) {
-        for output_index in 0..created_outputs.len() {
-            let outpoint = transparent::OutPoint {
-                hash: *creating_tx_hash,
-                index: output_index.try_into().expect("valid indexes fit in u32"),
-            };
-            let created_utxo = block_created_outputs
-                .get(&outpoint)
-                .expect("new_outputs contains all created UTXOs");
-
-            // Revert the chain's created UTXOs
-            let removed_entry = self.created_utxos.remove(&outpoint);
-            assert!(
-                removed_entry.is_some(),
-                "unexpected revert of created output: duplicate revert or duplicate UTXO",
-            );
-
-            // Revert the address index for this UTXO
-            if let Some(receiving_address) = created_utxo.utxo.output.address(&self.network) {
-                let address_transfers = self
-                    .partial_transparent_transfers
-                    .get_mut(&receiving_address)
-                    .expect("block has previously been applied to the chain");
-
-                address_transfers.revert_chain_with(&(&outpoint, created_utxo), position);
-
-                // Remove this transfer if it is now empty
-                if address_transfers.is_empty() {
-                    self.partial_transparent_transfers
-                        .remove(&receiving_address);
-                }
-            }
-        }
-    }
-}
-
-// Transparent inputs
-//
-// TODO: replace arguments with a struct
-impl
-    UpdateWith<(
-        // The inputs from a transaction in this block
-        &Vec<transparent::Input>,
-        // The hash of the transaction that the inputs are from
-        // (not the transaction the spent output was created by)
-        &transaction::Hash,
-        // The outputs for all inputs spent in this transaction (or block)
-        &HashMap<transparent::OutPoint, transparent::OrderedUtxo>,
-    )> for Chain
-{
-    fn update_chain_tip_with(
-        &mut self,
-        &(spending_inputs, spending_tx_hash, spent_outputs): &(
-            &Vec<transparent::Input>,
-            &transaction::Hash,
-            &HashMap<transparent::OutPoint, transparent::OrderedUtxo>,
-        ),
-    ) -> Result<(), ValidateContextError> {
-        for spending_input in spending_inputs.iter() {
-            let spent_outpoint = if let Some(spent_outpoint) = spending_input.outpoint() {
-                spent_outpoint
-            } else {
-                continue;
-            };
-
-            // Index the spent outpoint in the chain
-            let first_spend = self.spent_utxos.insert(spent_outpoint);
-            assert!(
-                first_spend,
-                "unexpected duplicate spent output: should be checked earlier"
-            );
-
-            // TODO: fix tests to supply correct spent outputs, then turn this into an expect()
-            let spent_output = if let Some(spent_output) = spent_outputs.get(&spent_outpoint) {
-                spent_output
-            } else if !cfg!(test) {
-                panic!("unexpected missing spent output: all spent outputs must be indexed");
-            } else {
-                continue;
-            };
-
-            // Index the spent output for the address
-            if let Some(spending_address) = spent_output.utxo.output.address(&self.network) {
-                let address_transfers = self
-                    .partial_transparent_transfers
-                    .entry(spending_address)
-                    .or_default();
-
-                address_transfers.update_chain_tip_with(&(
-                    spending_input,
-                    spending_tx_hash,
-                    spent_output,
-                ))?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn revert_chain_with(
-        &mut self,
-        &(spending_inputs, spending_tx_hash, spent_outputs): &(
-            &Vec<transparent::Input>,
-            &transaction::Hash,
-            &HashMap<transparent::OutPoint, transparent::OrderedUtxo>,
-        ),
-        position: RevertPosition,
-    ) {
-        for spending_input in spending_inputs.iter() {
-            let spent_outpoint = if let Some(spent_outpoint) = spending_input.outpoint() {
-                spent_outpoint
-            } else {
-                continue;
-            };
-
-            // Revert the spent outpoint in the chain
-            let spent_outpoint_was_removed = self.spent_utxos.remove(&spent_outpoint);
-            assert!(
-                spent_outpoint_was_removed,
-                "spent_utxos must be present if block was added to chain"
-            );
-
-            // TODO: fix tests to supply correct spent outputs, then turn this into an expect()
-            let spent_output = if let Some(spent_output) = spent_outputs.get(&spent_outpoint) {
-                spent_output
-            } else if !cfg!(test) {
-                panic!(
-                    "unexpected missing reverted spent output: all spent outputs must be indexed"
-                );
-            } else {
-                continue;
-            };
-
-            // Revert the spent output for the address
-            if let Some(receiving_address) = spent_output.utxo.output.address(&self.network) {
-                let address_transfers = self
-                    .partial_transparent_transfers
-                    .get_mut(&receiving_address)
-                    .expect("block has previously been applied to the chain");
-
-                address_transfers
-                    .revert_chain_with(&(spending_input, spending_tx_hash, spent_output), position);
-
-                // Remove this transfer if it is now empty
-                if address_transfers.is_empty() {
-                    self.partial_transparent_transfers
-                        .remove(&receiving_address);
-                }
-            }
-        }
     }
 }
 
