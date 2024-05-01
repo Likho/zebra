@@ -11,19 +11,8 @@
 //! - the cached [`Chain`], and
 //! - the shared finalized [`ZebraDb`] reference.
 
-use std::{collections::HashSet, sync::Arc};
-
 use zebra_chain::{
     amount::{self, Amount, NegativeAllowed, NonNegative},
-    block::Height,
-    transparent,
-};
-
-use crate::{
-    service::{
-        finalized_state::ZebraDb, non_finalized_state::Chain, read::FINALIZED_STATE_QUERY_RETRIES,
-    },
-    BoxError,
 };
 
 /// Add the supplied finalized and non-finalized balances together,

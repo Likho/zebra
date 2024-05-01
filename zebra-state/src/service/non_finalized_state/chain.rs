@@ -3,8 +3,8 @@
 
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    ops::{Deref, DerefMut, RangeInclusive},
+    collections::{BTreeMap, HashMap, HashSet},
+    ops::{Deref, DerefMut},
     sync::Arc,
 };
 
@@ -12,7 +12,7 @@ use mset::MultiSet;
 use tracing::instrument;
 
 use zebra_chain::{
-    amount::{Amount, NegativeAllowed, NonNegative},
+    amount::{NegativeAllowed, NonNegative},
     block::{self, Height},
     history_tree::HistoryTree,
     orchard,
@@ -29,7 +29,7 @@ use zebra_chain::{
 };
 
 use crate::{
-    request::Treestate, service::check, ContextuallyVerifiedBlock, HashOrHeight, OutputLocation,
+    request::Treestate, service::check, ContextuallyVerifiedBlock, HashOrHeight,
     TransactionLocation, ValidateContextError,
 };
 
@@ -1326,16 +1326,12 @@ impl Chain {
             block,
             hash,
             height,
-            new_outputs,
-            spent_outputs,
             transaction_hashes,
             chain_value_pool_change,
         ) = (
             contextually_valid.block.as_ref(),
             contextually_valid.hash,
             contextually_valid.height,
-            &contextually_valid.new_outputs,
-            &contextually_valid.spent_outputs,
             &contextually_valid.transaction_hashes,
             &contextually_valid.chain_value_pool_change,
         );
@@ -1363,29 +1359,21 @@ impl Chain {
             .enumerate()
         {
             let (
-                inputs,
-                outputs,
                 joinsplit_data,
                 sapling_shielded_data_per_spend_anchor,
                 sapling_shielded_data_shared_anchor,
                 orchard_shielded_data,
             ) = match transaction.deref() {
                 V4 {
-                    inputs,
-                    outputs,
                     joinsplit_data,
                     sapling_shielded_data,
                     ..
-                } => (inputs, outputs, joinsplit_data, sapling_shielded_data, &None, &None),
+                } => (joinsplit_data, sapling_shielded_data, &None, &None),
                 V5 {
-                    inputs,
-                    outputs,
                     sapling_shielded_data,
                     orchard_shielded_data,
                     ..
                 } => (
-                    inputs,
-                    outputs,
                     &None,
                     &None,
                     sapling_shielded_data,
@@ -1485,16 +1473,12 @@ impl UpdateWith<ContextuallyVerifiedBlock> for Chain {
             block,
             hash,
             height,
-            new_outputs,
-            spent_outputs,
             transaction_hashes,
             chain_value_pool_change,
         ) = (
             contextually_valid.block.as_ref(),
             contextually_valid.hash,
             contextually_valid.height,
-            &contextually_valid.new_outputs,
-            &contextually_valid.spent_outputs,
             &contextually_valid.transaction_hashes,
             &contextually_valid.chain_value_pool_change,
         );
@@ -1519,29 +1503,21 @@ impl UpdateWith<ContextuallyVerifiedBlock> for Chain {
             block.transactions.iter().zip(transaction_hashes.iter())
         {
             let (
-                inputs,
-                outputs,
                 joinsplit_data,
                 sapling_shielded_data_per_spend_anchor,
                 sapling_shielded_data_shared_anchor,
                 orchard_shielded_data,
             ) = match transaction.deref() {
                 V4 {
-                    inputs,
-                    outputs,
                     joinsplit_data,
                     sapling_shielded_data,
                     ..
-                } => (inputs, outputs, joinsplit_data, sapling_shielded_data, &None, &None),
+                } => (joinsplit_data, sapling_shielded_data, &None, &None),
                 V5 {
-                    inputs,
-                    outputs,
                     sapling_shielded_data,
                     orchard_shielded_data,
                     ..
                 } => (
-                    inputs,
-                    outputs,
                     &None,
                     &None,
                     sapling_shielded_data,

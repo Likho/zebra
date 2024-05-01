@@ -20,7 +20,7 @@ use zebra_chain::work::difficulty::CompactDifficulty;
 #[allow(unused_imports)]
 use crate::{ReadRequest, Request};
 
-use crate::{service::read::AddressUtxos, TransactionLocation};
+use crate::{TransactionLocation};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// A response to a [`StateService`](crate::service::StateService) [`Request`].
@@ -190,8 +190,6 @@ pub enum ReadResponse {
     /// with the obtained transaction ids, in the order they appear in blocks.
     AddressesTransactionIds(BTreeMap<TransactionLocation, transaction::Hash>),
 
-    /// Response to [`ReadRequest::UtxosByAddresses`] with found utxos and transaction data.
-    AddressUtxos(AddressUtxos),
 
     /// Response to [`ReadRequest::CheckBestChainTipNullifiersAndAnchors`].
     ///
@@ -293,8 +291,7 @@ impl TryFrom<ReadResponse> for Response {
             | ReadResponse::SaplingSubtrees(_)
             | ReadResponse::OrchardSubtrees(_)
             | ReadResponse::AddressBalance(_)
-            | ReadResponse::AddressesTransactionIds(_)
-            | ReadResponse::AddressUtxos(_) => {
+            | ReadResponse::AddressesTransactionIds(_) => {
                 Err("there is no corresponding Response for this ReadResponse")
             }
 

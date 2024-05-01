@@ -87,34 +87,6 @@ pub trait Rpc {
     #[rpc(name = "getblockchaininfo")]
     fn get_blockchain_info(&self) -> Result<GetBlockChainInfo>;
 
-    /// Returns the total balance of a provided `addresses` in an [`AddressBalance`] instance.
-    ///
-    /// zcashd reference: [`getaddressbalance`](https://zcash.github.io/rpc/getaddressbalance.html)
-    /// method: post
-    /// tags: address
-    ///
-    /// # Parameters
-    ///
-    /// - `address_strings`: (object, example={"addresses": ["tmYXBYJj1K7vhejSec5osXK2QsGa5MTisUQ"]}) A JSON map with a single entry
-    ///     - `addresses`: (array of strings) A list of base-58 encoded addresses.
-    ///
-    /// # Notes
-    ///
-    /// zcashd also accepts a single string parameter instead of an array of strings, but Zebra
-    /// doesn't because lightwalletd always calls this RPC with an array of addresses.
-    ///
-    /// zcashd also returns the total amount of Zatoshis received by the addresses, but Zebra
-    /// doesn't because lightwalletd doesn't use that information.
-    ///
-    /// The RPC documentation says that the returned object has a string `balance` field, but
-    /// zcashd actually [returns an
-    /// integer](https://github.com/zcash/lightwalletd/blob/bdaac63f3ee0dbef62bde04f6817a9f90d483b00/common/common.go#L128-L130).
-    #[rpc(name = "getaddressbalance")]
-    fn get_address_balance(
-        &self,
-        address_strings: AddressStrings,
-    ) -> BoxFuture<Result<AddressBalance>>;
-
     /// Sends the raw bytes of a signed transaction to the local node's mempool, if the transaction is valid.
     /// Returns the [`SentTransactionHash`] for the transaction, as a JSON string.
     ///
@@ -250,47 +222,6 @@ pub trait Rpc {
         txid_hex: String,
         verbose: Option<u8>,
     ) -> BoxFuture<Result<GetRawTransaction>>;
-
-    /// Returns the transaction ids made by the provided transparent addresses.
-    ///
-    /// zcashd reference: [`getaddresstxids`](https://zcash.github.io/rpc/getaddresstxids.html)
-    /// method: post
-    /// tags: address
-    ///
-    /// # Parameters
-    ///
-    /// - `request`: (object, required, example={\"addresses\": [\"tmYXBYJj1K7vhejSec5osXK2QsGa5MTisUQ\"], \"start\": 1000, \"end\": 2000}) A struct with the following named fields:
-    ///     - `addresses`: (json array of string, required) The addresses to get transactions from.
-    ///     - `start`: (numeric, required) The lower height to start looking for transactions (inclusive).
-    ///     - `end`: (numeric, required) The top height to stop looking for transactions (inclusive).
-    ///
-    /// # Notes
-    ///
-    /// Only the multi-argument format is used by lightwalletd and this is what we currently support:
-    /// <https://github.com/zcash/lightwalletd/blob/631bb16404e3d8b045e74a7c5489db626790b2f6/common/common.go#L97-L102>
-    #[rpc(name = "getaddresstxids")]
-    fn get_address_tx_ids(&self, request: GetAddressTxIdsRequest)
-        -> BoxFuture<Result<Vec<String>>>;
-
-    /// Returns all unspent outputs for a list of addresses.
-    ///
-    /// zcashd reference: [`getaddressutxos`](https://zcash.github.io/rpc/getaddressutxos.html)
-    /// method: post
-    /// tags: address
-    ///
-    /// # Parameters
-    ///
-    /// - `addresses`: (array, required, example={\"addresses\": [\"tmYXBYJj1K7vhejSec5osXK2QsGa5MTisUQ\"]}) The addresses to get outputs from.
-    ///
-    /// # Notes
-    ///
-    /// lightwalletd always uses the multi-address request, without chaininfo:
-    /// <https://github.com/zcash/lightwalletd/blob/master/frontend/service.go#L402>
-    #[rpc(name = "getaddressutxos")]
-    fn get_address_utxos(
-        &self,
-        address_strings: AddressStrings,
-    ) -> BoxFuture<Result<Vec<GetAddressUtxos>>>;
 }
 
 /// RPC method implementations.
@@ -593,33 +524,6 @@ where
         };
 
         Ok(response)
-    }
-
-    // TODO: use a generic error constructor (#5548)
-    fn get_address_balance(
-        &self,
-        address_strings: AddressStrings,
-    ) -> BoxFuture<Result<AddressBalance>> {
-        let state = self.state.clone();
-
-        async move {
-            let valid_addresses = address_strings.valid_addresses()?;
-
-            let request = zebra_state::ReadRequest::AddressBalance(valid_addresses);
-            let response = state.oneshot(request).await.map_err(|error| Error {
-                code: ErrorCode::ServerError(0),
-                message: error.to_string(),
-                data: None,
-            })?;
-
-            match response {
-                zebra_state::ReadResponse::AddressBalance(balance) => Ok(AddressBalance {
-                    balance: u64::from(balance),
-                }),
-                _ => unreachable!("Unexpected response from state service: {response:?}"),
-            }
-        }
-        .boxed()
     }
 
     // TODO: use HexData or GetRawTransaction::Bytes to handle the transaction data argument
@@ -1276,135 +1180,6 @@ where
                     data: None,
                 })
             }
-        }
-        .boxed()
-    }
-
-    // TODO: use a generic error constructor (#5548)
-    fn get_address_tx_ids(
-        &self,
-        request: GetAddressTxIdsRequest,
-    ) -> BoxFuture<Result<Vec<String>>> {
-        let mut state = self.state.clone();
-        let latest_chain_tip = self.latest_chain_tip.clone();
-
-        let start = Height(request.start);
-        let end = Height(request.end);
-
-        async move {
-            let chain_height = best_chain_tip_height(&latest_chain_tip)?;
-
-            // height range checks
-            check_height_range(start, end, chain_height)?;
-
-            let valid_addresses = AddressStrings {
-                addresses: request.addresses,
-            }
-            .valid_addresses()?;
-
-            let request = zebra_state::ReadRequest::TransactionIdsByAddresses {
-                addresses: valid_addresses,
-                height_range: start..=end,
-            };
-            let response = state
-                .ready()
-                .and_then(|service| service.call(request))
-                .await
-                .map_err(|error| Error {
-                    code: ErrorCode::ServerError(0),
-                    message: error.to_string(),
-                    data: None,
-                })?;
-
-            let hashes = match response {
-                zebra_state::ReadResponse::AddressesTransactionIds(hashes) => {
-                    let mut last_tx_location = TransactionLocation::from_usize(Height(0), 0);
-
-                    hashes
-                        .iter()
-                        .map(|(tx_loc, tx_id)| {
-                            // Check that the returned transactions are in chain order.
-                            assert!(
-                                *tx_loc > last_tx_location,
-                                "Transactions were not in chain order:\n\
-                                 {tx_loc:?} {tx_id:?} was after:\n\
-                                 {last_tx_location:?}",
-                            );
-
-                            last_tx_location = *tx_loc;
-
-                            tx_id.to_string()
-                        })
-                        .collect()
-                }
-                _ => unreachable!("unmatched response to a TransactionsByAddresses request"),
-            };
-
-            Ok(hashes)
-        }
-        .boxed()
-    }
-
-    // TODO: use a generic error constructor (#5548)
-    fn get_address_utxos(
-        &self,
-        address_strings: AddressStrings,
-    ) -> BoxFuture<Result<Vec<GetAddressUtxos>>> {
-        let mut state = self.state.clone();
-        let mut response_utxos = vec![];
-
-        async move {
-            let valid_addresses = address_strings.valid_addresses()?;
-
-            // get utxos data for addresses
-            let request = zebra_state::ReadRequest::UtxosByAddresses(valid_addresses);
-            let response = state
-                .ready()
-                .and_then(|service| service.call(request))
-                .await
-                .map_err(|error| Error {
-                    code: ErrorCode::ServerError(0),
-                    message: error.to_string(),
-                    data: None,
-                })?;
-            let utxos = match response {
-                zebra_state::ReadResponse::AddressUtxos(utxos) => utxos,
-                _ => unreachable!("unmatched response to a UtxosByAddresses request"),
-            };
-
-            let mut last_output_location = OutputLocation::from_usize(Height(0), 0, 0);
-
-            for utxo_data in utxos.utxos() {
-                let address = utxo_data.0;
-                let txid = *utxo_data.1;
-                let height = utxo_data.2.height();
-                let output_index = utxo_data.2.output_index();
-                let script = utxo_data.3.lock_script.clone();
-                let satoshis = u64::from(utxo_data.3.value);
-
-                let output_location = *utxo_data.2;
-                // Check that the returned UTXOs are in chain order.
-                assert!(
-                    output_location > last_output_location,
-                    "UTXOs were not in chain order:\n\
-                     {output_location:?} {address:?} {txid:?} was after:\n\
-                     {last_output_location:?}",
-                );
-
-                let entry = GetAddressUtxos {
-                    address,
-                    txid,
-                    output_index,
-                    script,
-                    satoshis,
-                    height,
-                };
-                response_utxos.push(entry);
-
-                last_output_location = output_location;
-            }
-
-            Ok(response_utxos)
         }
         .boxed()
     }

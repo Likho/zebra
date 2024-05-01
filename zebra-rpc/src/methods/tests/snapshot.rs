@@ -102,14 +102,6 @@ async fn test_rpc_response_data_for_network(network: &Network) {
         .unwrap();
     let addresses = vec![address.to_string()];
 
-    // `getaddressbalance`
-    let get_address_balance = rpc
-        .get_address_balance(AddressStrings {
-            addresses: addresses.clone(),
-        })
-        .await
-        .expect("We should have an AddressBalance struct");
-    snapshot_rpc_getaddressbalance(get_address_balance, &settings);
 
     // `getblock` variants
     // A valid block height in the populated state

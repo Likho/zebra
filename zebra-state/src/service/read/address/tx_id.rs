@@ -11,19 +11,11 @@
 //! - the cached [`Chain`], and
 //! - the shared finalized [`ZebraDb`] reference.
 
-use std::{
-    collections::{BTreeMap, HashSet},
-    ops::RangeInclusive,
-};
+use std::collections::BTreeMap;
 
-use zebra_chain::{block::Height, transaction, transparent};
+use zebra_chain::transaction;
 
-use crate::{
-    service::{
-        finalized_state::ZebraDb, non_finalized_state::Chain, read::FINALIZED_STATE_QUERY_RETRIES,
-    },
-    BoxError, TransactionLocation,
-};
+use crate::TransactionLocation;
 
 
 /// Returns the combined finalized and non-finalized transaction IDs.

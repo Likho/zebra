@@ -1,8 +1,8 @@
 //! State [`tower::Service`] request types.
 
 use std::{
-    collections::{HashMap, HashSet},
-    ops::{Deref, DerefMut, RangeInclusive},
+    collections::HashMap,
+    ops::{Deref, DerefMut},
     sync::Arc,
 };
 
@@ -935,11 +935,6 @@ pub enum ReadRequest {
         limit: Option<NoteCommitmentSubtreeIndex>,
     },
 
-    /// Looks up utxos for the provided addresses.
-    ///
-    /// Returns a type with found utxos and transaction information.
-    UtxosByAddresses(HashSet<transparent::Address>),
-
     /// Contextually validates anchors and nullifiers of a transaction on the best chain
     ///
     /// Returns [`ReadResponse::ValidBestChainTipNullifiersAndAnchors`].
@@ -1007,7 +1002,6 @@ impl ReadRequest {
             ReadRequest::OrchardTree { .. } => "orchard_tree",
             ReadRequest::SaplingSubtrees { .. } => "sapling_subtrees",
             ReadRequest::OrchardSubtrees { .. } => "orchard_subtrees",
-            ReadRequest::UtxosByAddresses(_) => "utxos_by_addesses",
             ReadRequest::CheckBestChainTipNullifiersAndAnchors(_) => {
                 "best_chain_tip_nullifiers_anchors"
             }

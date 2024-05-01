@@ -24,10 +24,6 @@ pub mod difficulty;
 
 #[cfg(test)]
 mod tests;
-
-pub use address::{
-    utxo::{address_utxos, AddressUtxos},
-};
 pub use block::{
     any_utxo, block, block_header, mined_transaction, transaction_hashes_for_block, unspent_utxo,
 };

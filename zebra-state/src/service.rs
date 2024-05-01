@@ -1616,32 +1616,6 @@ impl Service<ReadRequest> for ReadStateService {
                 .wait_for_panics()
             }
 
-            // For the get_address_utxos RPC.
-            ReadRequest::UtxosByAddresses(addresses) => {
-                let state = self.clone();
-
-                tokio::task::spawn_blocking(move || {
-                    span.in_scope(move || {
-                        let utxos = state.non_finalized_state_receiver.with_watch_data(
-                            |non_finalized_state| {
-                                read::address_utxos(
-                                    &state.network,
-                                    non_finalized_state.best_chain(),
-                                    &state.db,
-                                    addresses,
-                                )
-                            },
-                        );
-
-                        // The work is done in the future.
-                        timer.finish(module_path!(), line!(), "ReadRequest::UtxosByAddresses");
-
-                        utxos.map(ReadResponse::AddressUtxos)
-                    })
-                })
-                .wait_for_panics()
-            }
-
             ReadRequest::CheckBestChainTipNullifiersAndAnchors(unmined_tx) => {
                 let state = self.clone();
 
